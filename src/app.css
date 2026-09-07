@@ -61,8 +61,12 @@
 		repeating-linear-gradient(90deg, transparent 0 43px, rgba(27, 25, 21, 0.035) 43px 44px);
 }
 
+/* Palette sombre « carrelage de nuit ».
+   Déclarée deux fois : une fois pour la préférence système (sauf si l'utilisateur
+   a forcé le clair), une fois pour le choix explicite. Les deux blocs doivent
+   rester identiques. */
 @media (prefers-color-scheme: dark) {
-	:root {
+	:root:not([data-theme='light']) {
 		--paper: #131511;
 		--paper-2: #0d0f0c;
 		--surface: #1d201b;
@@ -94,6 +98,39 @@
 			repeating-linear-gradient(0deg, transparent 0 43px, rgba(255, 255, 255, 0.035) 43px 44px),
 			repeating-linear-gradient(90deg, transparent 0 43px, rgba(255, 255, 255, 0.035) 43px 44px);
 	}
+}
+
+:root[data-theme='dark'] {
+	--paper: #131511;
+	--paper-2: #0d0f0c;
+	--surface: #1d201b;
+	--surface-2: #262a23;
+	--hairline: #2f342c;
+	--hairline-strong: #3c423a;
+
+	--ink: #f1eee5;
+	--ink-2: #cac4b6;
+	--muted: #8d8778;
+
+	--glaze: #5cbfa6;
+	--glaze-ink: #10221d;
+	--glaze-soft: #17322b;
+	--terracotta: #dc8a63;
+
+	--grade-1: #d3644a;
+	--grade-2: #dc9152;
+	--grade-3: #d2b055;
+	--grade-4: #85ac6a;
+	--grade-5: #4aab93;
+
+	--lift-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 10px -3px rgba(0, 0, 0, 0.5);
+	--lift-2: 0 2px 8px rgba(0, 0, 0, 0.45), 0 16px 34px -12px rgba(0, 0, 0, 0.65);
+	--lift-3: 0 -10px 60px -14px rgba(0, 0, 0, 0.7);
+	--inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+
+	--tile:
+		repeating-linear-gradient(0deg, transparent 0 43px, rgba(255, 255, 255, 0.035) 43px 44px),
+		repeating-linear-gradient(90deg, transparent 0 43px, rgba(255, 255, 255, 0.035) 43px 44px);
 }
 
 * {
@@ -152,10 +189,14 @@ textarea {
 	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.055'/%3E%3C/svg%3E");
 }
 @media (prefers-color-scheme: dark) {
-	.grain::after {
+	:root:not([data-theme='light']) .grain::after {
 		mix-blend-mode: screen;
 		opacity: 0.5;
 	}
+}
+:root[data-theme='dark'] .grain::after {
+	mix-blend-mode: screen;
+	opacity: 0.5;
 }
 
 /* Reflet d'émail : un voile clair sur le haut d'une pastille colorée. */

@@ -2,6 +2,7 @@
 	import { fly } from 'svelte/transition';
 	import { geocode, type GeoResult } from '$lib/geocode';
 	import { iconFor } from '$lib/ui';
+	import { theme, THEME_LABEL } from '$lib/theme.svelte';
 
 	let {
 		center = null,
@@ -70,10 +71,35 @@
 		{#if searching}
 			<span class="spin" aria-label="Recherche en cours"></span>
 		{:else if q}
-			<button class="clear" onclick={clear} aria-label="Effacer">
+			<button class="slot" onclick={clear} aria-label="Effacer">
 				<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
 					<path d="M6 6l12 12M18 6L6 18" />
 				</svg>
+			</button>
+		{:else}
+			<!-- le champ vide libère la place : on y loge le réglage de thème -->
+			<button
+				class="slot theme"
+				onmousedown={(e) => e.preventDefault()}
+				onclick={() => theme.cycle()}
+				aria-label={THEME_LABEL[theme.value]}
+				title={THEME_LABEL[theme.value]}
+			>
+				{#if theme.value === 'auto'}
+					<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7">
+						<circle cx="12" cy="12" r="8" />
+						<path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor" stroke="none" />
+					</svg>
+				{:else if theme.value === 'light'}
+					<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+						<circle cx="12" cy="12" r="4.2" />
+						<path d="M12 2v2.4M12 19.6V22M22 12h-2.4M4.4 12H2M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7M19.1 19.1l-1.7-1.7M6.6 6.6L4.9 4.9" />
+					</svg>
+				{:else}
+					<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+						<path d="M20.4 14.6A8.5 8.5 0 0 1 9.4 3.6a8.5 8.5 0 1 0 11 11z" />
+					</svg>
+				{/if}
 			</button>
 		{/if}
 	</div>
@@ -141,21 +167,24 @@
 		display: none;
 	}
 
-	.clear {
+	.slot {
 		flex: none;
 		display: grid;
 		place-items: center;
-		width: 30px;
-		height: 30px;
+		width: 34px;
+		height: 34px;
 		border: 0;
 		border-radius: 50%;
 		background: var(--surface-2);
 		color: var(--muted);
 		cursor: pointer;
-		transition: background 0.15s;
+		transition: background 0.15s, color 0.15s;
 	}
-	.clear:active {
+	.slot:active {
 		background: var(--hairline);
+	}
+	.slot.theme:hover {
+		color: var(--glaze);
 	}
 
 	.spin {

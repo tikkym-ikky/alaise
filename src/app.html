@@ -10,6 +10,16 @@
 			href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap"
 			rel="stylesheet"
 		/>
+		<script>
+			// Applique le thème choisi avant le premier rendu, sinon on voit
+			// la palette système clignoter le temps que l'app démarre.
+			try {
+				var t = localStorage.getItem('loomap.theme');
+				if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+			} catch (e) {
+				/* stockage bloqué : on garde « auto » */
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

@@ -11,7 +11,13 @@
 	import type { GeoResult } from '$lib/geocode';
 	import { ratings, type Place, type Ranked } from '$lib/ratings.svelte';
 	import { supabaseEnabled } from '$lib/supabase';
+	import { theme } from '$lib/theme.svelte';
 	import { colorFor, distM, fmtScore, iconFor } from '$lib/ui';
+
+	const MAP_STYLE = {
+		light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+		dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
+	};
 
 	type Target = { placeId: string | null; name: string; kind: string; lat: number; lon: number };
 
@@ -35,6 +41,7 @@
 
 	let target = $state<Target | null>(null);
 	let sheetSeq = $state(0);
+	let sheet = $state<{ dismiss: () => void } | null>(null);
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let poiMarkers: any[] = [];
@@ -68,17 +75,16 @@
 	});
 
 	async function init() {
+		theme.init();
 		await ratings.init();
 		if (ratings.error) toast(ratings.error);
 
 		maplibregl = await import('maplibre-gl');
-		const dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+		appliedDark = theme.isDark;
 
 		map = new maplibregl.Map({
 			container: mapEl,
-			style: dark
-				? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
-				: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+			style: appliedDark ? MAP_STYLE.dark : MAP_STYLE.light,
 			center: [2.3522, 48.8566],
 			zoom: 12,
 			attributionControl: { compact: true }
@@ -99,6 +105,16 @@
 		const c = map.getCenter();
 		mapCenter = { lat: c.lat, lon: c.lng };
 	}
+
+	// Le fond de carte suit le thème. Les marqueurs sont des éléments DOM,
+	// ils survivent au changement de style.
+	let appliedDark = false;
+	$effect(() => {
+		const wanted = theme.isDark;
+		if (!map || wanted === appliedDark) return;
+		appliedDark = wanted;
+		map.setStyle(wanted ? MAP_STYLE.dark : MAP_STYLE.light);
+	});
 
 	function locate() {
 		if (!navigator.geolocation) return toast('Géolocalisation non disponible');
@@ -249,7 +265,7 @@
 
 		if (ok) {
 			renderMarkers();
-			target = null;
+			sheet?.dismiss();
 			toast('Merci — ta note est publiée');
 		} else {
 			toast(ratings.error ?? 'Échec de l’enregistrement');
@@ -260,12 +276,12 @@
 		await ratings.remove(id);
 		if (ratings.error) toast(ratings.error);
 		renderMarkers();
-		if (!existing.length) target = null;
+		if (!existing.length) sheet?.dismiss();
 	}
 </script>
 
 <div class="app">
-	<div class="map" bind:this={mapEl}></div>
+	<div class="map" class:night={theme.isDark} bind:this={mapEl}></div>
 
 	<div class="top">
 		<SearchBar center={mapCenter} onpick={onPick} onfail={toast} />
@@ -322,6 +338,7 @@
 	{#if target}
 		{#key sheetSeq}
 			<RatingSheet
+				bind:this={sheet}
 				place={target}
 				{existing}
 				{saving}
@@ -352,10 +369,8 @@
 	.map :global(.maplibregl-canvas) {
 		filter: sepia(0.16) saturate(0.84) brightness(1.02);
 	}
-	@media (prefers-color-scheme: dark) {
-		.map :global(.maplibregl-canvas) {
-			filter: saturate(0.78) brightness(0.94);
-		}
+	.map.night :global(.maplibregl-canvas) {
+		filter: saturate(0.78) brightness(0.94);
 	}
 	.map :global(.maplibregl-ctrl-bottom-right) {
 		bottom: 96px;

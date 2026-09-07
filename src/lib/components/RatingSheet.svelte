@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { fly, fade } from 'svelte/transition';
-	import { quintOut } from 'svelte/easing';
+	import { onMount } from 'svelte';
+	import { fly } from 'svelte/transition';
 	import type { Rating } from '$lib/ratings.svelte';
 	import { labelFor } from '$lib/overpass';
 	import { shrinkImage } from '$lib/image';
@@ -45,6 +45,59 @@
 	/** Photo la plus récente du lieu, utilisée en bandeau. */
 	const hero = $derived(existing.find((r) => r.photo_url)?.photo_url ?? null);
 
+	// ── glisser pour fermer ────────────────────────────────────
+	const CLOSE_PX = 120; // distance au-delà de laquelle on ferme
+	const CLOSE_VELOCITY = 0.55; // px/ms : un geste vif ferme même de peu
+
+	let ready = $state(false); // déclenche la montée à l'ouverture
+	let dragging = $state(false);
+	let offset = $state(0); // décalage vers le bas, en px
+	let startY = 0;
+	let startedAt = 0;
+	let closed = false;
+
+	onMount(() => {
+		requestAnimationFrame(() => (ready = true));
+	});
+
+	const scrimOpacity = $derived(
+		!ready ? 0 : Math.max(0, 1 - offset / 420)
+	);
+
+	function down(e: PointerEvent) {
+		if (saving) return;
+		dragging = true;
+		startY = e.clientY;
+		startedAt = performance.now();
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+	}
+
+	function move(e: PointerEvent) {
+		if (!dragging) return;
+		// vers le haut : résistance, on ne décolle pas la feuille
+		const dy = e.clientY - startY;
+		offset = dy > 0 ? dy : dy / 6;
+	}
+
+	function up() {
+		if (!dragging) return;
+		dragging = false;
+		const velocity = offset / Math.max(1, performance.now() - startedAt);
+		if (offset > CLOSE_PX || velocity > CLOSE_VELOCITY) dismiss();
+		else offset = 0;
+	}
+
+	/** Referme la feuille en l'animant, puis prévient le parent. */
+	export function dismiss() {
+		if (closed) return;
+		closed = true;
+		if (photoPreview) URL.revokeObjectURL(photoPreview);
+		dragging = false;
+		ready = false;
+		setTimeout(onclose, 380);
+	}
+
+	// ── formulaire ─────────────────────────────────────────────
 	async function onPhoto(e: Event) {
 		const file = (e.target as HTMLInputElement).files?.[0];
 		if (!file) return;
@@ -68,43 +121,48 @@
 		if (!cleanliness) return onfail?.('Choisis d’abord une note de propreté');
 		onsave({ name, cleanliness, note, photo: photoBlob });
 	}
-
-	function close() {
-		if (photoPreview) URL.revokeObjectURL(photoPreview);
-		onclose();
-	}
 </script>
 
-<div
-	class="scrim"
-	role="button"
-	tabindex="-1"
-	aria-label="Fermer"
-	onclick={close}
-	onkeydown={(e) => e.key === 'Escape' && close()}
-	transition:fade={{ duration: 200 }}
-></div>
+<svelte:window onkeydown={(e) => e.key === 'Escape' && dismiss()} />
 
-<section class="sheet grain" transition:fly={{ y: 460, duration: 420, easing: quintOut }}>
-	<div class="grip"></div>
+<button class="scrim" class:dragging style:opacity={scrimOpacity} aria-label="Fermer" onclick={dismiss}
+></button>
 
-	<div class="hero" class:shot={hero}>
-		{#if hero}<img src={hero} alt="" />{/if}
-		<div class="hero-in">
-			<div class="who">
-				<p class="eyebrow">
-					{place.placeId ? labelFor(place.kind) : 'Nouvelle adresse'}
-				</p>
-				<h2>{place.placeId ? place.name : name.trim() || 'Sans nom'}</h2>
-			</div>
-			{#if avg !== null}
-				<div class="avg">
-					<span class="numeral" style:--c={hero ? '#fff' : colorFor(avg)}>{fmtScore(avg)}</span>
-					<span class="avg-sub">{existing.length} avis</span>
+<section
+	class="sheet grain"
+	class:ready
+	class:dragging
+	style:--y="{offset}px"
+	aria-label={place.name || 'Nouvelle adresse'}
+>
+	<!-- Glisser vers le bas ferme la feuille. Redondant avec le voile, Échap
+	     et le bouton d'enregistrement : purement une commodité au pouce. -->
+	<div
+		class="handle"
+		role="presentation"
+		onpointerdown={down}
+		onpointermove={move}
+		onpointerup={up}
+		onpointercancel={up}
+	>
+		<span class="grip"></span>
+
+		<div class="hero" class:shot={hero}>
+			{#if hero}<img src={hero} alt="" />{/if}
+			<div class="hero-in">
+				<div class="who">
+					<p class="eyebrow">{place.placeId ? labelFor(place.kind) : 'Nouvelle adresse'}</p>
+					<h2>{place.placeId ? place.name : name.trim() || 'Sans nom'}</h2>
 				</div>
-			{:else}
-				<span class="ghost">{iconFor(place.kind)}</span>
-			{/if}
+				{#if avg !== null}
+					<div class="avg">
+						<span class="numeral" style:--c={hero ? '#fff' : colorFor(avg)}>{fmtScore(avg)}</span>
+						<span class="avg-sub">{existing.length} avis</span>
+					</div>
+				{:else}
+					<span class="ghost">{iconFor(place.kind)}</span>
+				{/if}
+			</div>
 		</div>
 	</div>
 
@@ -121,7 +179,7 @@
 			<div class="chips">
 				{#each SCALE as g, i (i)}
 					<button
-						class="chip glossy"
+						class="chip"
 						class:on={cleanliness === i + 1}
 						style:--c={g.color}
 						onclick={() => (cleanliness = i + 1)}
@@ -214,10 +272,18 @@
 		position: absolute;
 		inset: 0;
 		z-index: 30;
+		border: 0;
+		padding: 0;
+		cursor: default;
 		background: rgba(20, 17, 12, 0.42);
 		-webkit-backdrop-filter: blur(2px);
 		backdrop-filter: blur(2px);
+		transition: opacity 0.38s var(--ease);
 	}
+	.scrim.dragging {
+		transition: none;
+	}
+
 	.sheet {
 		position: absolute;
 		left: 0;
@@ -226,21 +292,46 @@
 		z-index: 31;
 		max-height: 90vh;
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		background: var(--surface);
 		border-radius: var(--r-xl) var(--r-xl) 0 0;
 		box-shadow: var(--lift-3);
+		/* état de départ et de sortie : hors écran */
+		transform: translateY(110%);
+		transition: transform 0.44s var(--spring);
+		will-change: transform;
+	}
+	.sheet.ready {
+		transform: translateY(var(--y, 0px));
+	}
+	.sheet.dragging {
+		transition: none;
+	}
+
+	/* zone de préhension : poignée + bandeau */
+	.handle {
+		position: relative;
+		touch-action: none;
+		cursor: grab;
+	}
+	.handle:active {
+		cursor: grabbing;
 	}
 	.grip {
 		position: absolute;
-		top: 9px;
+		top: 10px;
 		left: 50%;
 		transform: translateX(-50%);
 		z-index: 2;
-		width: 38px;
-		height: 4px;
+		width: 42px;
+		height: 5px;
 		border-radius: 999px;
-		background: rgba(255, 255, 255, 0.6);
+		background: rgba(255, 255, 255, 0.65);
 		mix-blend-mode: difference;
+		transition: width 0.3s var(--spring);
+	}
+	.sheet.dragging .grip {
+		width: 58px;
 	}
 
 	/* ── bandeau ───────────────────────────────────────────── */
@@ -257,6 +348,7 @@
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+		pointer-events: none;
 	}
 	.hero.shot::after {
 		content: '';
@@ -272,10 +364,10 @@
 		justify-content: space-between;
 		gap: 14px;
 		min-height: 108px;
-		padding: 30px 22px 18px;
+		padding: 32px 22px 18px;
 	}
 	.hero.shot .hero-in {
-		min-height: 148px;
+		min-height: 152px;
 	}
 	.who {
 		min-width: 0;
@@ -374,6 +466,8 @@
 		gap: 9px;
 	}
 	.chip {
+		position: relative;
+		overflow: hidden;
 		height: 62px;
 		border: 1px solid var(--hairline);
 		border-radius: var(--r-md);
@@ -389,7 +483,20 @@
 			color 0.2s var(--ease),
 			box-shadow 0.32s var(--ease);
 	}
+	.chip::before {
+		content: '';
+		position: absolute;
+		inset: 0 0 auto;
+		height: 58%;
+		background: linear-gradient(rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0));
+		opacity: 0;
+		transition: opacity 0.2s var(--ease);
+	}
+	.chip.on::before {
+		opacity: 1;
+	}
 	.chip .numeral {
+		position: relative;
 		font-size: 22px;
 	}
 	.chip:active {
