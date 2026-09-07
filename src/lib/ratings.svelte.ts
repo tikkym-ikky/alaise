@@ -37,6 +37,9 @@ export type PlaceSummary = {
 	lastAt: string;
 };
 
+/** Un lieu agrégé, avec sa distance au point de référence. */
+export type Ranked = PlaceSummary & { dist: number | null };
+
 export type NewRating = {
 	place: Place;
 	cleanliness: number;

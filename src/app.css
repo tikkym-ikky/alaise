@@ -1,0 +1,182 @@
+/* ─────────────────────────────────────────────────────────────
+   loomap — design system « Porcelaine »
+   Matières de salle de bain : porcelaine, émail, grès, terrazzo.
+   Serif de caractère (Fraunces) pour les chiffres et les titres,
+   sans-serif neutre (Inter) pour tout le reste.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+	color-scheme: light dark;
+
+	/* surfaces */
+	--paper: #f2efe9;
+	--paper-2: #e9e4da;
+	--surface: #fffdf9;
+	--surface-2: #f6f2ea;
+	--hairline: #e2dccf;
+	--hairline-strong: #d3cabb;
+
+	/* encre */
+	--ink: #1b1915;
+	--ink-2: #4b463c;
+	--muted: #8b8376;
+
+	/* émail */
+	--glaze: #2f7d6c;
+	--glaze-ink: #ffffff;
+	--glaze-soft: #e2eeea;
+	--terracotta: #b4553a;
+
+	/* échelle de propreté */
+	--grade-1: #b0472f;
+	--grade-2: #c1743a;
+	--grade-3: #b99739;
+	--grade-4: #6c9155;
+	--grade-5: #2e7d6b;
+
+	/* rayons */
+	--r-xs: 8px;
+	--r-sm: 12px;
+	--r-md: 18px;
+	--r-lg: 24px;
+	--r-xl: 32px;
+
+	/* profondeur */
+	--lift-1: 0 1px 2px rgba(27, 25, 21, 0.05), 0 2px 8px -3px rgba(27, 25, 21, 0.09);
+	--lift-2: 0 2px 6px rgba(27, 25, 21, 0.06), 0 14px 30px -12px rgba(27, 25, 21, 0.2);
+	--lift-3: 0 -10px 60px -14px rgba(27, 25, 21, 0.3);
+	--inset: inset 0 1px 2px rgba(27, 25, 21, 0.07);
+
+	/* typographie */
+	--serif: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+	--sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+
+	/* mouvement */
+	--ease: cubic-bezier(0.16, 1, 0.3, 1);
+	--spring: cubic-bezier(0.22, 1.24, 0.36, 1);
+
+	/* carrelage : deux trames croisées, presque invisibles */
+	--tile:
+		repeating-linear-gradient(0deg, transparent 0 43px, rgba(27, 25, 21, 0.035) 43px 44px),
+		repeating-linear-gradient(90deg, transparent 0 43px, rgba(27, 25, 21, 0.035) 43px 44px);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--paper: #131511;
+		--paper-2: #0d0f0c;
+		--surface: #1d201b;
+		--surface-2: #262a23;
+		--hairline: #2f342c;
+		--hairline-strong: #3c423a;
+
+		--ink: #f1eee5;
+		--ink-2: #cac4b6;
+		--muted: #8d8778;
+
+		--glaze: #5cbfa6;
+		--glaze-ink: #10221d;
+		--glaze-soft: #17322b;
+		--terracotta: #dc8a63;
+
+		--grade-1: #d3644a;
+		--grade-2: #dc9152;
+		--grade-3: #d2b055;
+		--grade-4: #85ac6a;
+		--grade-5: #4aab93;
+
+		--lift-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 10px -3px rgba(0, 0, 0, 0.5);
+		--lift-2: 0 2px 8px rgba(0, 0, 0, 0.45), 0 16px 34px -12px rgba(0, 0, 0, 0.65);
+		--lift-3: 0 -10px 60px -14px rgba(0, 0, 0, 0.7);
+		--inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+
+		--tile:
+			repeating-linear-gradient(0deg, transparent 0 43px, rgba(255, 255, 255, 0.035) 43px 44px),
+			repeating-linear-gradient(90deg, transparent 0 43px, rgba(255, 255, 255, 0.035) 43px 44px);
+	}
+}
+
+* {
+	-webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+	height: 100%;
+	margin: 0;
+	overscroll-behavior: none;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: var(--sans);
+	font-size: 15px;
+	line-height: 1.45;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea {
+	font-family: inherit;
+	color: inherit;
+}
+
+/* ── primitives partagées ─────────────────────────────────── */
+
+/* Chiffre de note : toujours en serif, tabulaire, un peu serré. */
+.numeral {
+	font-family: var(--serif);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: -0.02em;
+	line-height: 1;
+}
+
+/* Sur-titre en petites capitales espacées. */
+.eyebrow {
+	font-size: 10.5px;
+	font-weight: 600;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+
+/* Grain de terrazzo, posé en overlay sur les grandes surfaces. */
+.grain::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	opacity: 0.4;
+	mix-blend-mode: multiply;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.055'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+	.grain::after {
+		mix-blend-mode: screen;
+		opacity: 0.5;
+	}
+}
+
+/* Reflet d'émail : un voile clair sur le haut d'une pastille colorée. */
+.glossy {
+	position: relative;
+	overflow: hidden;
+}
+.glossy::before {
+	content: '';
+	position: absolute;
+	inset: 0 0 auto;
+	height: 58%;
+	background: linear-gradient(rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0));
+	pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}
