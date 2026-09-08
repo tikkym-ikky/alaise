@@ -1,4 +1,4 @@
-# loomap
+# À l'aise
 
 Noter la propreté des toilettes des lieux où l'on s'arrête (restaurant, gare, café…).
 Carte plein écran, lieux réels via OpenStreetMap, note de propreté + photo, **partagées**

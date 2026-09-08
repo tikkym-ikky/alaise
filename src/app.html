@@ -14,7 +14,7 @@
 			// Applique le thème choisi avant le premier rendu, sinon on voit
 			// la palette système clignoter le temps que l'app démarre.
 			try {
-				var t = localStorage.getItem('loomap.theme');
+				var t = localStorage.getItem('alaise.theme');
 				if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
 			} catch (e) {
 				/* stockage bloqué : on garde « auto » */

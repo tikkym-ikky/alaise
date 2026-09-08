@@ -1,11 +1,11 @@
 {
-	"name": "loomap",
-	"short_name": "loomap",
-	"description": "Noter la propreté des toilettes des lieux où l'on s'arrête.",
+	"name": "À l'aise",
+	"short_name": "alaise",
+	"description": "Les toilettes où on est bien, autour de soi.",
 	"start_url": "/",
 	"display": "standalone",
-	"background_color": "#ffffff",
-	"theme_color": "#111827",
+	"background_color": "#f2efe9",
+	"theme_color": "#f2efe9",
 	"icons": [
 		{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
 	]

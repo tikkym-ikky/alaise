@@ -1,4 +1,4 @@
--- loomap — schéma initial.
+-- À l'aise — schéma initial.
 -- À coller dans Supabase → SQL Editor → New query → Run (une seule fois).
 
 -- 1. Requêtes géographiques

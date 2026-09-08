@@ -1,6 +1,6 @@
 export type Theme = 'auto' | 'light' | 'dark';
 
-const KEY = 'loomap.theme';
+const KEY = 'alaise.theme';
 const ORDER: Theme[] = ['auto', 'light', 'dark'];
 
 export const THEME_LABEL: Record<Theme, string> = {
