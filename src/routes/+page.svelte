@@ -12,7 +12,14 @@
 	import { ratings, type Place, type Ranked } from '$lib/ratings.svelte';
 	import { supabaseEnabled } from '$lib/supabase';
 	import { theme } from '$lib/theme.svelte';
+	import { net } from '$lib/net.svelte';
 	import { colorFor, distM, fmtScore, iconFor } from '$lib/ui';
+
+	// Rayon de requête Overpass, borné : au-delà c'est lent et trop dense.
+	const QUERY_MIN = 450;
+	const QUERY_MAX = 2000;
+	// Si le demi-écran dépasse ça, on ne recharge pas tout seul (zoom trop large).
+	const TOO_WIDE = 2800;
 
 	const MAP_STYLE = {
 		light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
@@ -30,7 +37,7 @@
 	let loading = $state(false);
 	let saving = $state(false);
 	let loadedOnce = $state(false);
-	let movedSinceLoad = $state(false);
+	let tooWide = $state(false);
 	let message = $state<string | null>(null);
 	let pois = $state<Poi[]>([]);
 
@@ -43,10 +50,19 @@
 	let sheetSeq = $state(0);
 	let sheet = $state<{ dismiss: () => void } | null>(null);
 
+	// mode « pose le repère » (avant d'ouvrir la fiche pour un lieu ajouté à la main)
+	let placing = $state(false);
+
+	// centre + rayon de la dernière charge réussie, pour décider quand rafraîchir
+	let lastLoad: { lat: number; lon: number; r: number } | null = null;
+	let autoTimer: ReturnType<typeof setTimeout>;
+
+	// Marqueurs indexés par clé, réutilisés d'une charge à l'autre pour éviter
+	// que tout clignote quand la zone se rafraîchit toute seule.
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	let poiMarkers: any[] = [];
+	let ratingPins = new Map<string, any>();
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	let ratingMarkers: any[] = [];
+	let poiPins = new Map<string, any>();
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let userMarker: any = null;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,6 +92,7 @@
 
 	async function init() {
 		theme.init();
+		net.init();
 		await ratings.init();
 		if (ratings.error) toast(ratings.error);
 
@@ -97,13 +114,40 @@
 		});
 		map.on('moveend', () => {
 			syncCenter();
-			if (loadedOnce) movedSinceLoad = true;
+			if (loadedOnce) scheduleAutoLoad();
 		});
 	}
 
 	function syncCenter() {
 		const c = map.getCenter();
 		mapCenter = { lat: c.lat, lon: c.lng };
+	}
+
+	/** Rayon en mètres du centre jusqu'au coin de l'écran. */
+	function viewportRadius(): number {
+		const b = map.getBounds();
+		const c = b.getCenter();
+		const ne = b.getNorthEast();
+		return distM({ lat: c.lat, lon: c.lng }, { lat: ne.lat, lon: ne.lng });
+	}
+
+	/** Après un déplacement : recharge la zone si on a assez bougé/zoomé. */
+	function scheduleAutoLoad() {
+		clearTimeout(autoTimer);
+		autoTimer = setTimeout(() => {
+			if (loading || placing || !map) return;
+
+			const r = viewportRadius();
+			tooWide = r > TOO_WIDE;
+			if (tooWide || !net.online) return;
+
+			if (!lastLoad) return void loadArea();
+			const moved = distM(mapCenter!, lastLoad);
+			const zoomShift = Math.abs(r - lastLoad.r) / lastLoad.r;
+			if (moved > Math.max(220, lastLoad.r * 0.4) || zoomShift > 0.45) {
+				void loadArea();
+			}
+		}, 800);
 	}
 
 	// Le fond de carte suit le thème. Les marqueurs sont des éléments DOM,
@@ -136,6 +180,19 @@
 		);
 	}
 
+	// ── mode « pose le repère » ────────────────────────────────
+	function startPlacing() {
+		placing = true;
+	}
+	function cancelPlacing() {
+		placing = false;
+	}
+	function confirmPlacing() {
+		const c = map.getCenter();
+		placing = false;
+		openSheet({ placeId: null, name: '', kind: 'lieu', lat: c.lat, lon: c.lng });
+	}
+
 	let toastTimer: ReturnType<typeof setTimeout>;
 	function toast(m: string) {
 		message = m;
@@ -144,61 +201,78 @@
 	}
 
 	async function loadArea() {
+		if (!net.online) return toast('Hors ligne — zone impossible à charger');
+		clearTimeout(autoTimer);
 		loading = true;
+		tooWide = false;
+
 		const c = map.getCenter();
+		const r = Math.min(QUERY_MAX, Math.max(QUERY_MIN, Math.round(viewportRadius())));
+		const auto = loadedOnce; // premier chargement = message si vide, sinon silencieux
+
 		try {
-			pois = await fetchPois(c.lat, c.lng, 900);
-			if (pois.length === 0) toast('Aucun lieu répertorié dans cette zone');
+			pois = await fetchPois(c.lat, c.lng, r);
+			if (pois.length === 0 && !auto) toast('Aucun lieu répertorié dans cette zone');
 		} catch {
-			toast('Chargement des lieux impossible, réessaie');
+			if (!auto) toast('Chargement des lieux impossible, réessaie');
 		}
-		await ratings.loadNear(c.lat, c.lng, 1500);
-		if (ratings.error) toast(ratings.error);
+		await ratings.loadNear(c.lat, c.lng, Math.round(r * 1.6));
+		if (ratings.error && !auto) toast(ratings.error);
+
 		renderMarkers();
+		lastLoad = { lat: c.lat, lon: c.lng, r: viewportRadius() };
 		loading = false;
 		loadedOnce = true;
-		movedSinceLoad = false;
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	function clearMarkers(arr: any[]) {
-		for (const m of arr) m.remove();
-		arr.length = 0;
+	function reconcile(store: Map<string, any>, wanted: Map<string, () => unknown>) {
+		for (const [key, make] of wanted) {
+			if (!store.has(key)) store.set(key, make());
+		}
+		for (const [key, marker] of store) {
+			if (!wanted.has(key)) {
+				marker.remove();
+				store.delete(key);
+			}
+		}
 	}
 
 	function renderMarkers() {
-		clearMarkers(ratingMarkers);
-		clearMarkers(poiMarkers);
+		const rated = new Set(ratings.summaries.map((s) => s.placeId));
 
-		const rated = new Set<string>();
+		const wantRatings = new Map<string, () => unknown>();
 		for (const s of ratings.summaries) {
-			rated.add(s.placeId);
-			const el = document.createElement('button');
-			el.className = 'pin';
-			el.style.setProperty('--c', colorFor(s.avg));
-			el.title = s.name;
-			el.innerHTML = `<b>${fmtScore(s.avg)}</b>`;
-			el.addEventListener('click', () =>
-				openSheet({ placeId: s.placeId, name: s.name, kind: s.kind, lat: s.lat, lon: s.lon })
-			);
-			ratingMarkers.push(
-				new maplibregl.Marker({ element: el }).setLngLat([s.lon, s.lat]).addTo(map)
-			);
+			// la clé inclut la note et le nom : si l'un change, le marqueur est recréé
+			wantRatings.set(`${s.placeId}|${s.avg.toFixed(2)}|${s.name}`, () => {
+				const el = document.createElement('button');
+				el.className = 'pin';
+				el.style.setProperty('--c', colorFor(s.avg));
+				el.title = s.name;
+				el.innerHTML = `<b>${fmtScore(s.avg)}</b>`;
+				el.addEventListener('click', () =>
+					openSheet({ placeId: s.placeId, name: s.name, kind: s.kind, lat: s.lat, lon: s.lon })
+				);
+				return new maplibregl.Marker({ element: el }).setLngLat([s.lon, s.lat]).addTo(map);
+			});
 		}
+		reconcile(ratingPins, wantRatings);
 
+		const wantPois = new Map<string, () => unknown>();
 		for (const p of pois) {
 			if (rated.has(p.id)) continue;
-			const el = document.createElement('button');
-			el.className = 'spot';
-			el.title = p.name;
-			el.textContent = iconFor(p.kind);
-			el.addEventListener('click', () =>
-				openSheet({ placeId: p.id, name: p.name, kind: p.kind, lat: p.lat, lon: p.lon })
-			);
-			poiMarkers.push(
-				new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map)
-			);
+			wantPois.set(p.id, () => {
+				const el = document.createElement('button');
+				el.className = 'spot';
+				el.title = p.name;
+				el.textContent = iconFor(p.kind);
+				el.addEventListener('click', () =>
+					openSheet({ placeId: p.id, name: p.name, kind: p.kind, lat: p.lat, lon: p.lon })
+				);
+				return new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map);
+			});
 		}
+		reconcile(poiPins, wantPois);
 	}
 
 	// ── recherche ──────────────────────────────────────────────
@@ -225,11 +299,6 @@
 	function openSheet(t: Target) {
 		target = t;
 		sheetSeq += 1;
-	}
-
-	function addHere() {
-		const c = map.getCenter();
-		openSheet({ placeId: null, name: '', kind: 'lieu', lat: c.lat, lon: c.lng });
 	}
 
 	function openFromList(s: Ranked) {
@@ -283,21 +352,48 @@
 <div class="app">
 	<div class="map" class:night={theme.isDark} bind:this={mapEl}></div>
 
-	<div class="top">
+	<div class="top" class:hidden={placing}>
 		<SearchBar center={mapCenter} onpick={onPick} onfail={toast} />
+		{#if !net.online}
+			<p class="wire offline" transition:fly={{ y: -8, duration: 200 }}>
+				Hors ligne — carte et notes en cache
+			</p>
+		{:else if view === 'map' && loadedOnce && tooWide}
+			<p class="wire" transition:fly={{ y: -8, duration: 200 }}>Zoome pour explorer une zone</p>
+		{:else if view === 'map' && loadedOnce && loading}
+			<p class="wire loading" transition:fly={{ y: -8, duration: 200 }}>
+				<span class="spinner"></span> Mise à jour de la zone…
+			</p>
+		{/if}
 	</div>
 
-	{#if view === 'map' && ready && (!loadedOnce || movedSinceLoad)}
+	{#if view === 'map' && ready && !loadedOnce && !placing}
 		<button class="rescan" onclick={loadArea} disabled={loading} transition:fly={{ y: -14, duration: 260 }}>
 			<svg class:spinning={loading} viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
 				<path d="M20 11a8 8 0 1 0-2.3 5.7" />
 				<path d="M20 5.5V11h-5.5" />
 			</svg>
-			{loading ? 'Exploration…' : loadedOnce ? 'Chercher ici' : 'Explorer cette zone'}
+			{loading ? 'Exploration…' : 'Explorer cette zone'}
 		</button>
 	{/if}
 
-	{#if view === 'map'}
+	{#if placing}
+		<!-- le repère reste au centre de l'écran, on déplace la carte dessous -->
+		<div class="crosshair" aria-hidden="true">
+			<span class="ch-pin"></span>
+			<span class="ch-stem"></span>
+			<span class="ch-shadow"></span>
+		</div>
+		<div class="place-bar" transition:fly={{ y: 24, duration: 260 }}>
+			<p>Amène le repère sur l’entrée des toilettes</p>
+			<div class="place-actions">
+				<button class="ghost-btn" onclick={cancelPlacing}>Annuler</button>
+				<button class="glaze-btn" onclick={confirmPlacing}>Poser ici</button>
+			</div>
+		</div>
+	{/if}
+
+	{#if view === 'map' && !placing}
 		<div class="fabs">
 			<button class="fab ghost" onclick={locate} disabled={!ready} aria-label="Ma position">
 				<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9">
@@ -306,7 +402,7 @@
 					<path d="M12 1.6v3M12 19.4v3M22.4 12h-3M4.6 12h-3" stroke-linecap="round" />
 				</svg>
 			</button>
-			<button class="fab primary" onclick={addHere} disabled={!ready} aria-label="Noter cet endroit">
+			<button class="fab primary" onclick={startPlacing} disabled={!ready} aria-label="Noter un endroit">
 				<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
 					<path d="M12 5.5v13M5.5 12h13" />
 				</svg>
@@ -315,12 +411,12 @@
 
 		{#if !loadedOnce && ready}
 			<p class="hint" transition:fade>
-				Cadre un quartier, puis <strong>explore la zone</strong> — ou pose une note ici même avec ＋.
+				Cadre un quartier, puis <strong>explore la zone</strong> — ou pose une note avec ＋.
 			</p>
 		{/if}
 	{/if}
 
-	{#if ready}
+	{#if ready && !placing}
 		<nav class="switch">
 			<span class="thumb" class:right={view === 'list'}></span>
 			<button class:on={view === 'map'} onclick={() => (view = 'map')}>Carte</button>
@@ -392,6 +488,44 @@
 		left: 14px;
 		right: 14px;
 		z-index: 10;
+		transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+	}
+	.top.hidden {
+		opacity: 0;
+		transform: translateY(-12px);
+		pointer-events: none;
+	}
+
+	/* bandeau d'état sous la recherche (hors-ligne, mise à jour, zoom) */
+	.wire {
+		margin: 8px auto 0;
+		width: fit-content;
+		max-width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		padding: 7px 14px;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--surface) 92%, transparent);
+		-webkit-backdrop-filter: blur(12px);
+		backdrop-filter: blur(12px);
+		border: 1px solid var(--hairline);
+		box-shadow: var(--lift-1);
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--muted);
+	}
+	.wire.offline {
+		color: var(--terracotta);
+		border-color: color-mix(in srgb, var(--terracotta) 40%, var(--hairline));
+	}
+	.wire .spinner {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		border: 2px solid color-mix(in srgb, var(--glaze) 25%, transparent);
+		border-top-color: var(--glaze);
+		animation: spin 0.7s linear infinite;
 	}
 
 	/* ── pastille « explorer » ─────────────────────────────── */
@@ -493,6 +627,108 @@
 	.hint strong {
 		color: var(--ink);
 		font-weight: 600;
+	}
+
+	/* ── mode « pose le repère » ───────────────────────────── */
+	.crosshair {
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		z-index: 7;
+		pointer-events: none;
+		transform: translate(-50%, -100%);
+		animation: drop 0.32s var(--spring);
+	}
+	@keyframes drop {
+		from {
+			transform: translate(-50%, -160%);
+			opacity: 0;
+		}
+	}
+	.ch-pin {
+		display: block;
+		width: 26px;
+		height: 26px;
+		border-radius: 50% 50% 50% 4px;
+		background: var(--glaze);
+		border: 3px solid var(--surface);
+		box-shadow: var(--lift-2);
+		transform: rotate(45deg);
+	}
+	.ch-pin::after {
+		content: '';
+		position: absolute;
+		inset: 7px;
+		border-radius: 50%;
+		background: var(--surface);
+	}
+	.ch-stem {
+		position: absolute;
+		left: 50%;
+		top: 100%;
+		width: 2px;
+		height: 14px;
+		margin-left: -1px;
+		background: color-mix(in srgb, var(--ink) 45%, transparent);
+	}
+	.ch-shadow {
+		position: absolute;
+		left: 50%;
+		top: calc(100% + 14px);
+		width: 12px;
+		height: 4px;
+		margin-left: -6px;
+		border-radius: 50%;
+		background: rgba(0, 0, 0, 0.25);
+		filter: blur(1px);
+	}
+
+	.place-bar {
+		position: absolute;
+		left: 14px;
+		right: 14px;
+		bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+		z-index: 9;
+		padding: 16px;
+		border-radius: var(--r-lg);
+		background: var(--surface);
+		border: 1px solid var(--hairline);
+		box-shadow: var(--lift-2);
+	}
+	.place-bar p {
+		margin: 0 0 12px;
+		text-align: center;
+		font-size: 14px;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+	.place-actions {
+		display: grid;
+		grid-template-columns: 1fr 1.6fr;
+		gap: 9px;
+	}
+	.ghost-btn,
+	.glaze-btn {
+		border: 0;
+		border-radius: var(--r-md);
+		padding: 13px;
+		font: inherit;
+		font-size: 15px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.ghost-btn {
+		background: var(--surface-2);
+		color: var(--ink-2);
+	}
+	.glaze-btn {
+		background: var(--glaze);
+		color: var(--glaze-ink);
+		box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--glaze) 70%, transparent);
+	}
+	.ghost-btn:active,
+	.glaze-btn:active {
+		transform: scale(0.97);
 	}
 
 	/* ── bascule carte / classement ────────────────────────── */
