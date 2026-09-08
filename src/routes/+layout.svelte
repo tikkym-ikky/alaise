@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-	<title>À l'aise — les toilettes où on est bien</title>
+	<title>find the best spot pour te mettre à l'aise</title>
 	<meta name="description" content="Note la propreté des toilettes des lieux où tu t'arrêtes." />
 	<meta name="theme-color" content="#f2efe9" media="(prefers-color-scheme: light)" />
 	<meta name="theme-color" content="#131511" media="(prefers-color-scheme: dark)" />
