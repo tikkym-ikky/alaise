@@ -60,6 +60,7 @@
 	// centre + rayon de la dernière charge réussie, pour décider quand rafraîchir
 	let lastLoad: { lat: number; lon: number; r: number } | null = null;
 	let autoTimer: ReturnType<typeof setTimeout>;
+	let firstLoadTimer: ReturnType<typeof setTimeout>;
 
 	// Marqueurs indexés par clé, réutilisés d'une charge à l'autre pour éviter
 	// que tout clignote quand la zone se rafraîchit toute seule.
@@ -91,7 +92,11 @@
 	// ── carte ──────────────────────────────────────────────────
 	onMount(() => {
 		void init();
-		return () => map?.remove();
+		return () => {
+			clearTimeout(firstLoadTimer);
+			clearTimeout(autoTimer);
+			map?.remove();
+		};
 	});
 
 	async function init() {
@@ -116,6 +121,9 @@
 			ready = true;
 			syncCenter();
 			locate();
+			// La zone se charge toute seule au démarrage (plus besoin de « Explorer
+			// cette zone »). Filet de sécurité si la géoloc ne répond jamais.
+			firstLoadTimer = setTimeout(firstLoad, 4500);
 		});
 		map.on('moveend', () => {
 			syncCenter();
@@ -165,8 +173,15 @@
 		map.setStyle(wanted ? MAP_STYLE.dark : MAP_STYLE.light);
 	});
 
+	/** Premier chargement de zone, automatique et une seule fois. */
+	function firstLoad() {
+		clearTimeout(firstLoadTimer);
+		if (loadedOnce || loading || placing || !map) return;
+		void loadArea();
+	}
+
 	function locate() {
-		if (!navigator.geolocation) return toast('Géolocalisation non disponible');
+		if (!navigator.geolocation) return firstLoad();
 		navigator.geolocation.getCurrentPosition(
 			(pos) => {
 				const { latitude, longitude } = pos.coords;
@@ -179,8 +194,13 @@
 				userMarker = new maplibregl.Marker({ element: el })
 					.setLngLat([longitude, latitude])
 					.addTo(map);
+				// on charge la zone une fois arrivé sur la position
+				if (!loadedOnce) map.once('moveend', firstLoad);
 			},
-			() => toast('Position indisponible ici'),
+			() => {
+				toast('Position indisponible ici');
+				firstLoad();
+			},
 			{ enableHighAccuracy: true, timeout: 10000 }
 		);
 	}

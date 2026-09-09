@@ -6,7 +6,14 @@ export type Poi = {
 	kind: string;
 };
 
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+// Plusieurs miroirs : le principal (overpass-api.de) renvoie souvent 406/429/504
+// quand il est chargé, et sur ces erreurs il n'ajoute pas d'en-tête CORS →
+// le navigateur signale « CORS blocked ». On bascule sur le miroir suivant.
+const OVERPASS_ENDPOINTS = [
+	'https://overpass-api.de/api/interpreter',
+	'https://overpass.kumi.systems/api/interpreter'
+];
+const ENDPOINT_TIMEOUT = 14000; // au-delà, on considère le miroir muet et on passe au suivant
 
 // Tags for "places you might walk into and need a loo".
 const QUERY_TAGS: Array<[string, string]> = [
@@ -46,18 +53,42 @@ export function labelFor(kind: string): string {
 	return LABELS[kind] ?? 'Lieu';
 }
 
+type OverpassResponse = { elements?: any[] };
+
+/**
+ * POST la requête aux miroirs Overpass l'un après l'autre jusqu'à une réponse OK.
+ * Deux passes : les erreurs 406/429/504 sont quasi toujours transitoires.
+ */
+async function runOverpass(query: string): Promise<OverpassResponse> {
+	const body = 'data=' + encodeURIComponent(query);
+	let lastErr: unknown;
+
+	for (let pass = 0; pass < 2; pass++) {
+		for (const endpoint of OVERPASS_ENDPOINTS) {
+			try {
+				const res = await fetch(endpoint, {
+					method: 'POST',
+					// type CORS-safe (pas de préflight) et encodage attendu par Overpass
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+					body,
+					signal: AbortSignal.timeout(ENDPOINT_TIMEOUT)
+				});
+				if (res.ok) return (await res.json()) as OverpassResponse;
+				lastErr = new Error('Overpass HTTP ' + res.status);
+			} catch (e) {
+				lastErr = e; // réseau/timeout, ou erreur CORS sur une réponse d'erreur du miroir
+			}
+		}
+	}
+	throw lastErr ?? new Error('Overpass injoignable');
+}
+
 export async function fetchPois(lat: number, lon: number, radius = 900): Promise<Poi[]> {
 	const parts = QUERY_TAGS.map(
 		([k, v]) => `nwr[${k}=${v}][name](around:${radius},${lat},${lon});`
 	).join('\n');
 	const query = `[out:json][timeout:25];(${parts});out center tags 80;`;
-
-	const res = await fetch(OVERPASS, {
-		method: 'POST',
-		body: 'data=' + encodeURIComponent(query)
-	});
-	if (!res.ok) throw new Error('Overpass HTTP ' + res.status);
-	const data = (await res.json()) as { elements?: any[] };
+	const data = await runOverpass(query);
 
 	const seen = new Set<string>();
 	const out: Poi[] = [];
