@@ -33,6 +33,10 @@ function isMapAsset(url: URL): boolean {
 
 /** Jamais en cache : tout ce qui doit rester frais. */
 function isLiveData(url: URL): boolean {
+	if (url.origin === location.origin) {
+		// nos routes serveur (proxy Overpass, etc.) : toujours au réseau
+		return url.pathname.startsWith('/api/');
+	}
 	if (url.hostname.endsWith('.supabase.co')) {
 		// les photos publiques sont immuables ; le reste (REST, RPC, auth) doit être live
 		return !url.pathname.startsWith('/storage/v1/object/public/');
