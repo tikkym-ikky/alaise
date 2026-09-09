@@ -6,20 +6,30 @@ import { build, files, version } from '$service-worker';
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const SHELL = `alaise-shell-${version}`;
-const RUNTIME = 'alaise-runtime';
+// v2 : purge les entrées de l'ancien cache (certaines pouvaient laisser la carte grise).
+const RUNTIME = 'alaise-runtime-v2';
 const RUNTIME_MAX = 320; // tuiles + polices + photos gardées hors-ligne
 const SHELL_URL = '/'; // coquille HTML, mise en cache à la première visite
 
 /** Ressources de l'app (noms hashés → sûres à mettre en cache fort). */
 const PRECACHE = new Set([...build, ...files]);
 
-/** Hôtes dont on garde une copie pour l'usage hors-ligne. */
-const CACHEABLE_HOSTS = new Set([
-	'basemaps.cartocdn.com',
-	'tiles.basemaps.cartocdn.com',
-	'fonts.googleapis.com',
-	'fonts.gstatic.com'
-]);
+/**
+ * Fond de carte + polices : on en garde une copie pour l'usage hors-ligne, mais
+ * en « réseau d'abord » — en ligne on sert toujours la version fraîche, jamais
+ * une entrée de cache qui aurait mal tourné (ce qui laissait la carte grise).
+ * `fonts.googleapis.com` (la feuille CSS) n'est PAS interceptée : la requête d'un
+ * <link> distant est `no-cors`, la réponse opaque servie par le SW casse la
+ * feuille. On laisse le navigateur la charger, et on ne met en cache que les
+ * fichiers de police (fonts.gstatic.com, requête CORS donc sûre).
+ */
+function isMapAsset(url: URL): boolean {
+	return (
+		url.hostname === 'basemaps.cartocdn.com' ||
+		url.hostname.endsWith('.basemaps.cartocdn.com') ||
+		url.hostname === 'fonts.gstatic.com'
+	);
+}
 
 /** Jamais en cache : tout ce qui doit rester frais. */
 function isLiveData(url: URL): boolean {
@@ -80,14 +90,31 @@ if (!import.meta.env.DEV) {
 			return;
 		}
 
-		// Tuiles, polices, photos publiques : cache d'abord, complété au fil de l'eau.
-		const cacheable =
-			CACHEABLE_HOSTS.has(url.hostname) ||
-			url.pathname.startsWith('/storage/v1/object/public/');
-		if (cacheable) {
+		// Fond de carte + polices : réseau d'abord, cache en secours hors-ligne.
+		if (isMapAsset(url)) {
+			event.respondWith(networkFirst(request));
+			return;
+		}
+
+		// Photos publiques Supabase (immuables) : cache d'abord.
+		if (url.pathname.startsWith('/storage/v1/object/public/')) {
 			event.respondWith(staleWhileRevalidate(request));
 		}
 	});
+}
+
+/** Réseau d'abord ; on retombe sur le cache seulement si le réseau échoue. */
+async function networkFirst(request: Request): Promise<Response> {
+	const cache = await caches.open(RUNTIME);
+	try {
+		const res = await fetch(request);
+		if (res.ok) {
+			cache.put(request, res.clone()).then(() => trim(cache));
+		}
+		return res;
+	} catch {
+		return (await cache.match(request)) ?? offline();
+	}
 }
 
 function offline(): Response {

@@ -18,6 +18,9 @@ export default defineConfig({
 			adapter: adapter({ runtime: 'nodejs22.x' })
 		})
 	],
-	// maplibre-gl ships a web worker that Vite's dep optimizer can't pre-bundle.
-	optimizeDeps: { exclude: ['maplibre-gl'] }
+	// maplibre-gl ships a web worker que l'optimiseur de deps de Vite ne sait pas pré-bundler.
+	optimizeDeps: { exclude: ['maplibre-gl'] },
+	// Le worker de MapLibre est chargé en `{ type: 'module' }` : on force Vite à
+	// émettre un vrai module ES (défaut = iife) pour le worker empaqueté.
+	worker: { format: 'es' }
 });

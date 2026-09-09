@@ -2,6 +2,10 @@
 	import { onMount } from 'svelte';
 	import { fly, fade } from 'svelte/transition';
 	import 'maplibre-gl/dist/maplibre-gl.css';
+	// MapLibre v6 calcule l'URL de son worker au runtime (pas un `new URL()` littéral),
+	// donc le bundler ne l'émet pas et le fichier est 404 en prod → carte noire.
+	// On laisse Vite empaqueter le worker et on pointe MapLibre dessus explicitement.
+	import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
 	import SearchBar from '$lib/components/SearchBar.svelte';
 	import RankList from '$lib/components/RankList.svelte';
@@ -97,6 +101,7 @@
 		if (ratings.error) toast(ratings.error);
 
 		maplibregl = await import('maplibre-gl');
+		maplibregl.setWorkerUrl(maplibreWorkerUrl);
 		appliedDark = theme.isDark;
 
 		map = new maplibregl.Map({
@@ -468,13 +473,15 @@
 	.map.night :global(.maplibregl-canvas) {
 		filter: saturate(0.78) brightness(0.94);
 	}
+	/* attribution en bas à gauche : le coin droit est pris par les boutons flottants */
 	.map :global(.maplibregl-ctrl-bottom-right) {
-		bottom: 96px;
-		right: 4px;
+		right: auto;
+		left: 0;
+		bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
 	}
 	.map :global(.maplibregl-ctrl-attrib) {
 		background: color-mix(in srgb, var(--surface) 70%, transparent);
-		border-radius: 999px 0 0 999px;
+		border-radius: 0 999px 999px 0;
 		font-family: var(--sans);
 		font-size: 10px;
 	}
